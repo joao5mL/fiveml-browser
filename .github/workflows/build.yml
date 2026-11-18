@@ -32,10 +32,13 @@ jobs:
 
           if [ -z "$APP_GRADLE" ]; then
             echo "Android app module (app/build.gradle.kts) not found." >&2
+            echo "Files in workspace:" >&2
+            find "$GITHUB_WORKSPACE" -maxdepth 2 >&2
             exit 1
           fi
 
           ROOT="$(dirname "$(dirname "$APP_GRADLE")")"
+          echo "Android project root: $ROOT"
           echo "PROJECT_DIR=$ROOT" >> "$GITHUB_ENV"
 
       - name: Set up JDK 17
@@ -62,6 +65,7 @@ jobs:
           SRC="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
           test -s "$SRC"
           cp "$SRC" "$GITHUB_WORKSPACE/$APK_NAME"
+          ls -l "$GITHUB_WORKSPACE/$APK_NAME"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -77,3 +81,4 @@ jobs:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('build-{0}', github.run_number) }}
           name: FivemL Browser ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('build {0}', github.run_number) }}
           files: ${{ env.APK_NAME }}
+          
