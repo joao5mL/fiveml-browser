@@ -1,5 +1,4 @@
-
-name: Criar APK de depuração
+name: Criar APK
 
 on:
   push:
@@ -10,7 +9,7 @@ permissions:
 
 jobs:
   build:
-    name: Build APK
+    name: Compilar APK Debug
     runs-on: ubuntu-latest
 
     steps:
@@ -23,47 +22,48 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Localizar e preparar projeto Android
+      - name: Localizar projeto Android
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ ! -f "settings.gradle" && ! -f "settings.gradle.kts" ]]; then
-            ZIP_FILE="$(find . -maxdepth 1 -type f -iname '*.zip' -print -quit || true)"
-            if [[ -n "$ZIP_FILE" ]]; then
-              mkdir -p "$RUNNER_TEMP/fiveml-project"
-              unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/fiveml-project"
-            fi
-          fi
+          mkdir -p "$RUNNER_TEMP/fiveml"
 
-          SETTINGS_FILE="$(find . "$RUNNER_TEMP/fiveml-project" -type f \
-            \( -name settings.gradle.kts -o -name settings.gradle \) \
-            -not -path '*/.gradle/*' -print -quit 2>/dev/null || true)"
+          find . -type f -name '*.zip' -print0 |
+          while IFS= read -r -d '' file; do
+            unzip -oq "$file" -d "$RUNNER_TEMP/fiveml"
+          done
 
-          if [[ -z "$SETTINGS_FILE" ]]; then
-            echo "ERRO: arquivos Gradle não encontrados."
-            find . -maxdepth 3 -type f | sort | head -200
+          SETTINGS=$(find . "$RUNNER_TEMP/fiveml" \
+            -type f \( -name settings.gradle.kts -o -name settings.gradle \) \
+            -not -path '*/.gradle/*' -print -quit)
+
+          if [ -z "$SETTINGS" ]; then
+            echo "Projeto Gradle não encontrado."
             exit 1
           fi
 
-          PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
-          PROJECT_DIR="$(realpath "$PROJECT_DIR")"
+          PROJECT_DIR=$(dirname "$(realpath "$SETTINGS")")
 
-          if [[ ! -f "$PROJECT_DIR/app/build.gradle.kts" && ! -f "$PROJECT_DIR/app/build.gradle" ]]; then
-            echo "ERRO: app/build.gradle não encontrado."
+          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ] && \
+             [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
+            echo "Arquivo Gradle do módulo app não encontrado."
             exit 1
           fi
 
-          echo "Projeto localizado: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Configurar Gradle 8.1.1
+      - name: Configurar Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.1.1'
+          gradle-version: '8.7'
 
       - name: Compilar APK Debug
-        run: gradle --no-daemon -p "$PROJECT_DIR" :app:assembleDebug
+        run: |
+          gradle --no-daemon \
+            -p "$PROJECT_DIR" \
+            :app:assembleDebug \
+            --stacktrace
 
       - name: Publicar APK
         uses: actions/upload-artifact@v4
