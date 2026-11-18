@@ -24,6 +24,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           APP_GRADLE="$(find "$GITHUB_WORKSPACE" -type f \
             -path '*/app/build.gradle.kts' \
             -not -path '*/.git/*' \
@@ -32,12 +33,19 @@ jobs:
 
           if [ -z "$APP_GRADLE" ]; then
             echo "Android app module (app/build.gradle.kts) not found." >&2
-            echo "Files in workspace:" >&2
-            find "$GITHUB_WORKSPACE" -maxdepth 2 >&2
+            echo "Repository files at the top level:" >&2
+            ls -la "$GITHUB_WORKSPACE" >&2
             exit 1
           fi
 
           ROOT="$(dirname "$(dirname "$APP_GRADLE")")"
+
+          if [ ! -f "$ROOT/settings.gradle.kts" ]; then
+            echo "settings.gradle.kts not found beside the detected Android project:" >&2
+            echo "$ROOT" >&2
+            exit 1
+          fi
+
           echo "Android project root: $ROOT"
           echo "PROJECT_DIR=$ROOT" >> "$GITHUB_ENV"
 
@@ -55,9 +63,17 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Ensure Gradle Wrapper
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          if [ ! -f gradlew ]; then
+            gradle wrapper --gradle-version 8.9 --no-daemon
+          fi
+          chmod +x gradlew
+
       - name: Assemble APK
         working-directory: ${{ env.PROJECT_DIR }}
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Rename APK
         run: |
@@ -65,6 +81,7 @@ jobs:
           SRC="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
           test -s "$SRC"
           cp "$SRC" "$GITHUB_WORKSPACE/$APK_NAME"
+          file "$GITHUB_WORKSPACE/$APK_NAME" || true
           ls -l "$GITHUB_WORKSPACE/$APK_NAME"
 
       - name: Upload artifact
