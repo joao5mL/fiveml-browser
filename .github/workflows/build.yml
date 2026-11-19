@@ -1,0 +1,106 @@
+
+name: Build FivemL Browser
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  APK_NAME: FivemL-Browser.apk
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Locate or extract project root
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! find "$GITHUB_WORKSPACE" -type f -path '*/app/build.gradle.kts' -not -path '*/.git/*' | grep -q .; then
+            ZIP_FILE="$(find "$GITHUB_WORKSPACE" -maxdepth 2 -type f -name '*.zip' -print -quit)"
+            if [ -n "$ZIP_FILE" ]; then
+              echo "Unpacking archive: $ZIP_FILE"
+              unzip -oq "$ZIP_FILE" -d "$GITHUB_WORKSPACE/_unpacked"
+            fi
+          fi
+
+          APP_GRADLE="$(find "$GITHUB_WORKSPACE" -type f \
+            -path '*/app/build.gradle.kts' \
+            -not -path '*/.git/*' \
+            -not -path '*/build/*' \
+            -print -quit)"
+
+          if [ -z "$APP_GRADLE" ]; then
+            echo "Android app module (app/build.gradle.kts) not found." >&2
+            ls -la "$GITHUB_WORKSPACE" >&2
+            exit 1
+          fi
+
+          ROOT="$(dirname "$(dirname "$APP_GRADLE")")"
+
+          if [ ! -f "$ROOT/settings.gradle.kts" ]; then
+            echo "settings.gradle.kts not found beside the detected Android project:" >&2
+            echo "$ROOT" >&2
+            exit 1
+          fi
+
+          echo "Android project root: $ROOT"
+          echo "PROJECT_DIR=$ROOT" >> "$GITHUB_ENV"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Ensure Gradle Wrapper
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          if [ ! -f gradlew ]; then
+            gradle wrapper --gradle-version 8.9 --no-daemon
+          fi
+          chmod +x gradlew
+
+      - name: Assemble APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Rename APK
+        run: |
+          set -euo pipefail
+          SRC="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$SRC"
+          cp "$SRC" "$GITHUB_WORKSPACE/$APK_NAME"
+          file "$GITHUB_WORKSPACE/$APK_NAME" || true
+          ls -l "$GITHUB_WORKSPACE/$APK_NAME"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FivemL-Browser
+          path: ${{ env.APK_NAME }}
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('build-{0}', github.run_number) }}
+          name: FivemL Browser ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('build {0}', github.run_number) }}
+          files: ${{ env.APK_NAME }}
