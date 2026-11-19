@@ -20,13 +20,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Locate project root
+      - name: Locate or extract project root
         shell: bash
         run: |
           set -euo pipefail
 
-          # Find the app module without assuming how deeply the project
-          # is nested inside the checked-out repository.
+          # Se o repositório contiver um arquivo .zip em vez dos arquivos extraídos, descompacta automaticamente
+          if ! find "$GITHUB_WORKSPACE" -type f -path '*/app/build.gradle.kts' -not -path '*/.git/*' | grep -q .; then
+            ZIP_FILE="$(find "$GITHUB_WORKSPACE" -maxdepth 2 -type f -name '*.zip' -print -quit)"
+            if [ -n "$ZIP_FILE" ]; then
+              echo "Unpacking archive: $ZIP_FILE"
+              unzip -oq "$ZIP_FILE" -d "$GITHUB_WORKSPACE/_unpacked"
+            fi
+          fi
+
           APP_GRADLE="$(find "$GITHUB_WORKSPACE" -type f \
             -path '*/app/build.gradle.kts' \
             -not -path '*/.git/*' \
@@ -56,9 +63,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
