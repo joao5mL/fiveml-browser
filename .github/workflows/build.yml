@@ -20,19 +20,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Locate or extract project root
+      - name: Locate project root
         shell: bash
         run: |
           set -euo pipefail
 
-          if ! find "$GITHUB_WORKSPACE" -type f -path '*/app/build.gradle.kts' -not -path '*/.git/*' | grep -q .; then
-            ZIP_FILE="$(find "$GITHUB_WORKSPACE" -maxdepth 2 -type f -name '*.zip' -print -quit)"
-            if [ -n "$ZIP_FILE" ]; then
-              echo "Unpacking archive: $ZIP_FILE"
-              unzip -oq "$ZIP_FILE" -d "$GITHUB_WORKSPACE/_unpacked"
-            fi
-          fi
-
+          # Find the app module without assuming how deeply the project
+          # is nested inside the checked-out repository.
           APP_GRADLE="$(find "$GITHUB_WORKSPACE" -type f \
             -path '*/app/build.gradle.kts' \
             -not -path '*/.git/*' \
@@ -41,10 +35,19 @@ jobs:
 
           if [ -z "$APP_GRADLE" ]; then
             echo "Android app module (app/build.gradle.kts) not found." >&2
+            echo "Repository files at the top level:" >&2
+            ls -la "$GITHUB_WORKSPACE" >&2
             exit 1
           fi
 
           ROOT="$(dirname "$(dirname "$APP_GRADLE")")"
+
+          if [ ! -f "$ROOT/settings.gradle.kts" ]; then
+            echo "settings.gradle.kts not found beside the detected Android project:" >&2
+            echo "$ROOT" >&2
+            exit 1
+          fi
+
           echo "Android project root: $ROOT"
           echo "PROJECT_DIR=$ROOT" >> "$GITHUB_ENV"
 
@@ -53,6 +56,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
